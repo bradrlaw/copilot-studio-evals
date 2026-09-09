@@ -1,0 +1,92 @@
+// =============================================================================
+// Application Insights KQL - Copilot Studio conversation extraction
+// =============================================================================
+// Run Query 0 first and adapt field mappings to the target environment.
+// Query 6 exports grouped message events.
+// Query 6b exports optional tool calls for timestamp-based correlation.
+// Use the same time window for both exports.
+
+// QUERY 0: Telemetry discovery
+union withsource=tableName customEvents, dependencies
+| where timestamp > ago(14d)
+| summarize rows = count() by tableName, name, type
+| order by rows desc
+
+// QUERY 1: Flat conversation messages
+customEvents
+| where timestamp > ago(14d)
+| where name in ("BotMessageReceived", "BotMessageSend", "BotMessageSent")
+| extend
+    conversationId = tostring(customDimensions["conversationId"]),
+    messageText = coalesce(
+        tostring(customDimensions["text"]),
+        tostring(customDimensions["Text"])
+    )
+| where isnotempty(conversationId)
+| project
+    timestamp,
+    conversationId,
+    activityType = name,
+    messageText
+| order by conversationId asc, timestamp asc
+
+// QUERY 3: Tool dependency discovery
+dependencies
+| where timestamp > ago(14d)
+| extend
+    genaiTool = tostring(customDimensions["gen_ai.tool.name"]),
+    mcpTool = tostring(customDimensions["mcp.tool.name"])
+| summarize
+    calls = count(),
+    exampleGenaiTool = take_any(genaiTool),
+    exampleMcpTool = take_any(mcpTool)
+    by name, type
+| order by calls desc
+
+// QUERY 6: Grouped conversation messages export
+customEvents
+| where timestamp > ago(14d)
+| where name in ("BotMessageReceived", "BotMessageSend", "BotMessageSent")
+| extend
+    conversationId = tostring(customDimensions["conversationId"]),
+    messageText = coalesce(
+        tostring(customDimensions["text"]),
+        tostring(customDimensions["Text"])
+    )
+| where isnotempty(conversationId)
+| project conversationId, timestamp, activityType = name, messageText
+| order by conversationId asc, timestamp asc
+| extend ev = pack(
+    "timestamp", timestamp,
+    "type", activityType,
+    "message", messageText,
+    "toolName", "",
+    "outcome", "",
+    "success", "true",
+    "duration", 0
+)
+| summarize events = make_list(ev), eventCount = count() by conversationId
+| order by conversationId asc
+
+// QUERY 6b: Generic tool-call export
+// Confirm dependency names and dimensions with Query 3 before using this query.
+dependencies
+| where timestamp > ago(14d)
+| extend
+    genaiTool = tostring(customDimensions["gen_ai.tool.name"]),
+    mcpTool = tostring(customDimensions["mcp.tool.name"]),
+    operationName = tostring(customDimensions["gen_ai.operation.name"])
+| where
+    isnotempty(genaiTool)
+    or isnotempty(mcpTool)
+    or name in ("ExecuteTool", "mcp.tool")
+    or operationName == "execute_tool"
+| extend
+    toolName = coalesce(genaiTool, mcpTool, name),
+    outcome = coalesce(
+        tostring(customDimensions["mcp.tool.outcome"]),
+        tostring(customDimensions["outcome"]),
+        resultCode
+    )
+| project timestamp, toolName, outcome, success, duration
+| order by timestamp asc

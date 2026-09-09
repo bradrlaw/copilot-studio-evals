@@ -1,0 +1,8 @@
+{
+  "testSetNamePatterns": [
+    "deploy-test-*"
+  ],
+  "testSetNames": [],
+  "passThreshold": 0.9,
+  "runOnPublishedBot": true
+}

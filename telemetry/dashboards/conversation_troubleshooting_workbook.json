@@ -1,0 +1,238 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# Conversation / User Troubleshooting\nDiagnose a specific **user** or **conversation** for any Copilot Studio agent in this Application Insights resource. Pick a time range, then either type a **user id** / **conversation id** or click through the grids below (user \u2192 conversations \u2192 transcript & flow).\n\n> \u26a0\ufe0f **Tool-call caveat:** MCP tool calls (`mcp.tool`) carry no conversation id, so the flow tile overlays them by **timestamp window** \u2014 best-effort when conversations overlap in time."
+      },
+      "name": "text - 3083ba96"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "d7770184-f46d-4741-933e-65d742ba60e2",
+            "version": "KqlParameterItem/1.0",
+            "name": "TimeRange",
+            "label": "Time range",
+            "type": 4,
+            "isRequired": true,
+            "value": {
+              "durationMs": 1209600000
+            },
+            "typeSettings": {
+              "selectableValues": [
+                {
+                  "durationMs": 900000
+                },
+                {
+                  "durationMs": 1800000
+                },
+                {
+                  "durationMs": 3600000
+                },
+                {
+                  "durationMs": 14400000
+                },
+                {
+                  "durationMs": 43200000
+                },
+                {
+                  "durationMs": 86400000
+                },
+                {
+                  "durationMs": 172800000
+                },
+                {
+                  "durationMs": 604800000
+                },
+                {
+                  "durationMs": 1209600000
+                },
+                {
+                  "durationMs": 2592000000
+                },
+                {
+                  "durationMs": 7776000000
+                }
+              ],
+              "allowCustom": true
+            }
+          },
+          {
+            "id": "5b1ad1be-8ccb-4d21-ae54-f6209fdb49a8",
+            "version": "KqlParameterItem/1.0",
+            "name": "Agent",
+            "label": "Agent",
+            "type": 2,
+            "isRequired": false,
+            "value": "",
+            "query": "union\n (print value = \"\", label = \"\\u2014 All agents \\u2014\", ord = 0),\n (customEvents\n  | where timestamp between ({TimeRange:start} .. {TimeRange:end})\n  | where name == \"BotMessageReceived\"\n  | extend agent = tostring(customDimensions.recipientName)\n  | where isnotempty(agent)\n  | distinct agent\n  | project value = agent, label = agent, ord = 1)\n| order by ord asc, label asc\n| project value, label",
+            "queryType": 0,
+            "resourceType": "microsoft.insights/components",
+            "typeSettings": {
+              "additionalResourceOptions": []
+            }
+          },
+          {
+            "id": "10fd8232-054d-48db-95e1-648198903a41",
+            "version": "KqlParameterItem/1.0",
+            "name": "UserId",
+            "label": "User id or name",
+            "type": 1,
+            "isRequired": false,
+            "value": ""
+          },
+          {
+            "id": "450ac66d-0e92-4e38-8a3a-24b1d99fbf95",
+            "version": "KqlParameterItem/1.0",
+            "name": "ConversationId",
+            "label": "Conversation id",
+            "type": 1,
+            "isRequired": false,
+            "value": ""
+          }
+        ],
+        "style": "pills",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components"
+      },
+      "name": "parameters - filters"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Agents in this resource\nEvery Copilot Studio agent (bot) that logs to this Application Insights resource."
+      },
+      "name": "text - eef5a693"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customEvents\n| where timestamp between ({TimeRange:start} .. {TimeRange:end})\n| where name == \"BotMessageReceived\"\n| extend cd = customDimensions\n| extend agent = tostring(cd.recipientName)\n| where isnotempty(agent)\n| summarize conversations = dcount(tostring(cd.conversationId)),\n            sessions      = dcount(session_Id),\n            users         = dcount(tostring(cd.fromId)),\n            messages      = count(),\n            lastSeen      = max(timestamp)\n        by agent\n| order by messages desc",
+        "size": 0,
+        "title": "Agents in this resource",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table",
+        "comment": "Every Copilot Studio agent (bot) that logs to this Application Insights resource."
+      },
+      "name": "query - 0 Agents in this res"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Users across all agents\nSessions & conversations per user (fromId + display name where available), across every agent. Type a user id or name in the filter, or click a row to load that user's conversations below."
+      },
+      "name": "text - 953b5a92"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let userNames = customEvents\n    | where timestamp between ({TimeRange:start} .. {TimeRange:end})\n    | where name == \"BotMessageSend\"\n    | extend cd = customDimensions\n    | where isnotempty(tostring(cd.recipientName))\n    | summarize userName = take_any(tostring(cd.recipientName)) by userId = tostring(cd.recipientId);\ncustomEvents\n| where timestamp between ({TimeRange:start} .. {TimeRange:end})\n| where name == \"BotMessageReceived\"\n| extend cd = customDimensions\n| extend userId  = tostring(cd.fromId),\n         agent   = tostring(cd.recipientName),\n         convId  = tostring(cd.conversationId),\n         channel = tostring(split(user_Id, tostring(cd.fromId))[0])\n| where isnotempty(userId)\n| where \"{Agent}\" == \"\" or agent == \"{Agent}\"\n| summarize conversations = dcount(convId),\n            sessions      = dcount(session_Id),\n            messages      = count(),\n            agents        = make_set_if(agent, isnotempty(agent), 10),\n            channels      = make_set_if(channel, isnotempty(channel), 5),\n            lastSeen      = max(timestamp)\n        by userId\n| join kind = leftouter (userNames) on userId\n| extend userName = coalesce(userName, \"\")\n| where \"{UserId}\" == \"\" or userId contains \"{UserId}\" or (isnotempty(userName) and userName contains \"{UserId}\")\n| project userId, userName, conversations, sessions, messages, agents, channels, lastSeen\n| order by conversations desc",
+        "size": 0,
+        "title": "Users across all agents",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table",
+        "comment": "Sessions & conversations per user (fromId + display name where available), across every agent. Type a user id or name in the filter, or click a row to load that user's conversations below.",
+        "exportedParameters": [
+          {
+            "fieldName": "userId",
+            "parameterName": "UserId",
+            "parameterType": 1
+          }
+        ]
+      },
+      "name": "query - 1 Users across all a"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Conversations\nFind by user id and/or conversation id (or click a user above). approxToolCalls counts MCP tool calls by timestamp window (best-effort). Click a row to open the transcript & flow."
+      },
+      "name": "text - 8045f642"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let toolRows = dependencies\n    | where timestamp between ({TimeRange:start} .. {TimeRange:end})\n    | where name == \"mcp.tool\"\n    | project toolTime = timestamp, opId = operation_Id, tbin = bin(timestamp, 1m);\nlet userNames = customEvents\n    | where timestamp between ({TimeRange:start} .. {TimeRange:end})\n    | where name == \"BotMessageSend\"\n    | extend cd = customDimensions\n    | where isnotempty(tostring(cd.recipientName))\n    | summarize userName = take_any(tostring(cd.recipientName)) by userId = tostring(cd.recipientId);\nlet convAgg = customEvents\n    | where timestamp between ({TimeRange:start} .. {TimeRange:end})\n    | where name in (\"BotMessageReceived\", \"BotMessageSend\")\n    | extend cd = customDimensions\n    | extend convId = tostring(cd.conversationId)\n    | where isnotempty(convId)\n    | where \"{ConversationId}\" == \"\" or convId == \"{ConversationId}\"\n    | summarize agent  = take_anyif(tostring(cd.recipientName), name == \"BotMessageReceived\" and isnotempty(tostring(cd.recipientName))),\n                userId = take_anyif(tostring(cd.fromId), name == \"BotMessageReceived\" and isnotempty(tostring(cd.fromId))),\n                started = min(timestamp),\n                ended   = max(timestamp),\n                userMessages = countif(name == \"BotMessageReceived\" and tostring(cd.type) == \"message\" and isnotempty(tostring(cd.text))),\n                botMessages  = countif(name == \"BotMessageSend\" and isnotempty(tostring(cd.text)))\n            by convId\n    | where \"{Agent}\" == \"\" or agent == \"{Agent}\"\n    | where userMessages + botMessages > 0\n    | join kind = leftouter (userNames) on userId\n    | extend userName = coalesce(userName, \"\")\n    | where \"{UserId}\" == \"\" or userId contains \"{UserId}\" or (isnotempty(userName) and userName contains \"{UserId}\");\nlet convToolCounts =\n    convAgg\n    | extend startB = bin(started - 30s, 1m), endB = bin(ended + 30s, 1m)\n    | extend nbins = toint((endB - startB) / 1m) + 1\n    | mv-expand offset = range(0, nbins - 1, 1) to typeof(int)\n    | extend tbin = startB + offset * 1m\n    | project convId, started, ended, tbin\n    | join kind = inner (toolRows) on tbin\n    | where toolTime between (started - 30s .. ended + 30s)\n    | summarize approxToolCalls = dcount(opId) by convId;\nconvAgg\n| join kind = leftouter (convToolCounts) on convId\n| extend approxToolCalls = coalesce(approxToolCalls, 0)\n| project convId, agent, userId, userName, started, ended, userMessages, botMessages,\n          approxToolCalls,\n          durationMin = round(datetime_diff('second', ended, started) / 60.0, 1)\n| order by started desc",
+        "size": 0,
+        "title": "Conversations",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table",
+        "comment": "Find by user id and/or conversation id (or click a user above). approxToolCalls counts MCP tool calls by timestamp window (best-effort). Click a row to open the transcript & flow.",
+        "exportedParameters": [
+          {
+            "fieldName": "convId",
+            "parameterName": "ConversationId",
+            "parameterType": 1
+          }
+        ]
+      },
+      "name": "query - 2 Conversations"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Conversation transcript\nOrdered user/agent messages for the selected conversation."
+      },
+      "name": "text - c8e25c1e"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customEvents\n| where timestamp between ({TimeRange:start} .. {TimeRange:end})\n| where tostring(customDimensions.conversationId) == \"{ConversationId}\"\n| where name in (\"BotMessageReceived\", \"BotMessageSend\")\n| extend cd = customDimensions\n| where (name == \"BotMessageReceived\" and tostring(cd.type) == \"message\" and isnotempty(tostring(cd.text)))\n     or (name == \"BotMessageSend\" and isnotempty(tostring(cd.text)))\n| project timestamp,\n          role = iff(name == \"BotMessageReceived\", \"user\", \"agent\"),\n          text = tostring(cd.text)\n| order by timestamp asc",
+        "size": 0,
+        "title": "Conversation transcript",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table",
+        "comment": "Ordered user/agent messages for the selected conversation."
+      },
+      "name": "query - 3 Conversation trans",
+      "conditionalVisibility": {
+        "parameterName": "ConversationId",
+        "comparison": "isNotEqualTo",
+        "value": ""
+      }
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Conversation flow (messages + tool calls)\nMessages interleaved with MCP tool calls. Tool calls are matched by TIMESTAMP WINDOW (they carry no conversation id) \u2014 treat as best-effort when conversations overlap in time."
+      },
+      "name": "text - 0c72c3bd"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let conv = \"{ConversationId}\";\nlet bounds = materialize(\n    customEvents\n    | where timestamp between ({TimeRange:start} .. {TimeRange:end})\n    | where tostring(customDimensions.conversationId) == conv\n    | summarize mn = min(timestamp), mx = max(timestamp));\nlet mn = toscalar(bounds | project mn);\nlet mx = toscalar(bounds | project mx);\nunion\n (customEvents\n  | where timestamp between ({TimeRange:start} .. {TimeRange:end})\n  | where tostring(customDimensions.conversationId) == conv\n  | where name in (\"BotMessageReceived\", \"BotMessageSend\")\n  | extend cd = customDimensions\n  | where (name == \"BotMessageReceived\" and tostring(cd.type) == \"message\" and isnotempty(tostring(cd.text)))\n       or (name == \"BotMessageSend\" and isnotempty(tostring(cd.text)))\n  | project timestamp,\n            step   = iff(name == \"BotMessageReceived\", \"user\", \"agent\"),\n            detail = tostring(cd.text),\n            latencyMs = real(null),\n            ok = \"\"),\n (dependencies\n  | where name == \"mcp.tool\"\n  | where timestamp between (mn - 30s .. mx + 30s)\n  | extend cd = customDimensions\n  | project timestamp,\n            step   = strcat(\"tool:\", tostring(cd[\"mcp.tool.name\"])),\n            detail = strcat(\"outcome=\", coalesce(tostring(cd[\"mcp.tool.outcome\"]), tostring(cd[\"outcome\"]), tostring(resultCode)), iif(success == false, \"  [FAILED]\", \"\")),\n            latencyMs = toreal(duration),\n            ok = tostring(success))\n| order by timestamp asc",
+        "size": 0,
+        "title": "Conversation flow (messages + tool calls)",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table",
+        "comment": "Messages interleaved with MCP tool calls. Tool calls are matched by TIMESTAMP WINDOW (they carry no conversation id) \u2014 treat as best-effort when conversations overlap in time."
+      },
+      "name": "query - 4 Conversation flow ",
+      "conditionalVisibility": {
+        "parameterName": "ConversationId",
+        "comparison": "isNotEqualTo",
+        "value": ""
+      }
+    }
+  ],
+  "isLocked": false,
+  "fallbackResourceIds": [],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

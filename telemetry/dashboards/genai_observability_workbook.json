@@ -1,0 +1,205 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# GenAI Observability\nCost, token usage, and tool performance across **Azure AI Foundry** and **Microsoft Copilot Studio** telemetry in this Application Insights resource. Token/cost tiles are populated for AI Foundry only \u2014 see the gap analysis in the repo. Pick a time range below."
+      },
+      "name": "text - ea080cfa"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "eab630e2-96d5-4f8d-bfb4-80c4390bb893",
+            "version": "KqlParameterItem/1.0",
+            "name": "TimeRange",
+            "label": "Time range",
+            "type": 4,
+            "isRequired": true,
+            "value": {
+              "durationMs": 1209600000
+            },
+            "typeSettings": {
+              "selectableValues": [
+                {
+                  "durationMs": 300000
+                },
+                {
+                  "durationMs": 900000
+                },
+                {
+                  "durationMs": 1800000
+                },
+                {
+                  "durationMs": 3600000
+                },
+                {
+                  "durationMs": 14400000
+                },
+                {
+                  "durationMs": 43200000
+                },
+                {
+                  "durationMs": 86400000
+                },
+                {
+                  "durationMs": 172800000
+                },
+                {
+                  "durationMs": 604800000
+                },
+                {
+                  "durationMs": 1209600000
+                },
+                {
+                  "durationMs": 2592000000
+                },
+                {
+                  "durationMs": 7776000000
+                }
+              ],
+              "allowCustom": true
+            }
+          }
+        ],
+        "style": "pills",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components"
+      },
+      "name": "parameters - timerange"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Telemetry source inventory\nWhich GenAI telemetry flavours are present (run to confirm your instance)."
+      },
+      "name": "text - 62c2573c"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "dependencies\n| where timestamp between ({TimeRange:start} .. {TimeRange:end})\n| extend cd = customDimensions\n| extend genaiSystem = tostring(cd[\"gen_ai.system\"]),\n         provider     = tostring(cd[\"resource.provider\"]),\n         opName       = tostring(cd[\"gen_ai.operation.name\"])\n| extend source = case(\n        genaiSystem startswith \"az.ai\",       \"AI Foundry\",\n        genaiSystem == \"openai\",              \"AI Foundry (OpenAI SDK)\",\n        provider == \"copilot studio\",         \"Copilot Studio (env OTel)\",\n        name == \"mcp.tool\",                   \"Copilot Studio (MCP legacy)\",\n        \"Other / unclassified\")\n| summarize spans = count(),\n            withTokens = countif(isnotempty(tostring(cd[\"gen_ai.usage.input_tokens\"]))),\n            distinctModels = dcount(tostring(cd[\"gen_ai.request.model\"])),\n            distinctTools  = dcount(coalesce(tostring(cd[\"gen_ai.tool.name\"]), tostring(cd[\"mcp.tool.name\"])))\n        by source, genaiSystem, provider\n| order by spans desc",
+        "size": 0,
+        "title": "Telemetry source inventory",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table",
+        "comment": "Which GenAI telemetry flavours are present (run to confirm your instance)."
+      },
+      "name": "query - Telemetry source inv"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Tool invocation frequency & error rate\nPer tool, across AI Foundry + Copilot Studio."
+      },
+      "name": "text - bc226fd4"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "dependencies\n| where timestamp between ({TimeRange:start} .. {TimeRange:end})\n| extend cd = customDimensions\n| extend genaiTool = tostring(cd[\"gen_ai.tool.name\"]),\n         mcpTool   = tostring(cd[\"mcp.tool.name\"]),\n         genaiSystem = tostring(cd[\"gen_ai.system\"]),\n         provider    = tostring(cd[\"resource.provider\"]),\n         mcpOutcome  = tolower(coalesce(tostring(cd[\"mcp.tool.outcome\"]), tostring(cd[\"outcome\"]), tostring(resultCode)))\n| where isnotempty(genaiTool) or isnotempty(mcpTool)\n        or name in (\"ExecuteTool\", \"mcp.tool\")\n        or tostring(cd[\"gen_ai.operation.name\"]) == \"execute_tool\"\n| extend toolName = iif(isnotempty(genaiTool), genaiTool,\n                    iif(isnotempty(mcpTool), mcpTool, name))\n| extend source = case(\n        genaiSystem startswith \"az.ai\" or genaiSystem == \"openai\", \"AI Foundry\",\n        provider == \"copilot studio\",                              \"Copilot Studio (env OTel)\",\n        name == \"mcp.tool\",                                        \"Copilot Studio (MCP legacy)\",\n        isnotempty(genaiTool),                                     \"AI Foundry\",\n        \"Other\")\n| extend isError = (success == false) or (resultCode == \"ERROR\")\n                   or (mcpOutcome in (\"error\", \"failure\", \"failed\"))\n| summarize invocations = count(),\n            errors      = countif(isError),\n            avgDurationMs = round(avg(duration), 1)\n        by source, toolName\n| extend errorRatePct = round(100.0 * errors / invocations, 2)\n| order by invocations desc",
+        "size": 0,
+        "title": "Tool invocation frequency & error rate",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "barchart",
+        "comment": "Per tool, across AI Foundry + Copilot Studio."
+      },
+      "name": "query - Tool invocation freq"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Token usage by model (daily)\nAI Foundry only \u2014 Copilot Studio does not log tokens."
+      },
+      "name": "text - 1bacf5c5"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "dependencies\n| where timestamp between ({TimeRange:start} .. {TimeRange:end})\n| extend cd = customDimensions\n| extend inTok  = tolong(cd[\"gen_ai.usage.input_tokens\"]),\n         outTok = tolong(cd[\"gen_ai.usage.output_tokens\"])\n| where isnotnull(inTok) or isnotnull(outTok)\n| extend model = iif(isnotempty(tostring(cd[\"gen_ai.response.model\"])),\n                     tostring(cd[\"gen_ai.response.model\"]),\n                     tostring(cd[\"gen_ai.request.model\"]))\n| extend model = iif(isnotempty(model), model, \"unknown\")\n| summarize inputTokens  = sum(inTok),\n            outputTokens = sum(outTok),\n            calls        = count()\n        by day = bin(timestamp, 1d), model\n| extend totalTokens = inputTokens + outputTokens\n| order by day asc, totalTokens desc",
+        "size": 0,
+        "title": "Token usage by model (daily)",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "timechart",
+        "comment": "AI Foundry only \u2014 Copilot Studio does not log tokens."
+      },
+      "name": "query - Token usage by model"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Tool latency p50 / p95 / p99 (ms)\nPer tool; duration is milliseconds."
+      },
+      "name": "text - 6ef47fb9"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "dependencies\n| where timestamp between ({TimeRange:start} .. {TimeRange:end})\n| extend cd = customDimensions\n| extend genaiTool = tostring(cd[\"gen_ai.tool.name\"]),\n         mcpTool   = tostring(cd[\"mcp.tool.name\"]),\n         genaiSystem = tostring(cd[\"gen_ai.system\"]),\n         provider    = tostring(cd[\"resource.provider\"])\n| where isnotempty(genaiTool) or isnotempty(mcpTool)\n        or name in (\"ExecuteTool\", \"mcp.tool\")\n        or tostring(cd[\"gen_ai.operation.name\"]) == \"execute_tool\"\n| extend toolName = iif(isnotempty(genaiTool), genaiTool,\n                    iif(isnotempty(mcpTool), mcpTool, name))\n| extend source = case(\n        genaiSystem startswith \"az.ai\" or genaiSystem == \"openai\", \"AI Foundry\",\n        provider == \"copilot studio\",                              \"Copilot Studio (env OTel)\",\n        name == \"mcp.tool\",                                        \"Copilot Studio (MCP legacy)\",\n        isnotempty(genaiTool),                                     \"AI Foundry\",\n        \"Other\")\n| summarize calls = count(),\n            p50Ms = round(percentile(duration, 50), 1),\n            p95Ms = round(percentile(duration, 95), 1),\n            p99Ms = round(percentile(duration, 99), 1),\n            maxMs = round(max(duration), 1)\n        by source, toolName\n| order by p95Ms desc",
+        "size": 0,
+        "title": "Tool latency p50 / p95 / p99 (ms)",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table",
+        "comment": "Per tool; duration is milliseconds."
+      },
+      "name": "query - Tool latency p50 / p"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Estimated cost per conversation (USD)\nAI Foundry only. Update the pricing datatable in the .kql."
+      },
+      "name": "text - d35b62f3"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let pricing = datatable(model:string, inPer1M:real, outPer1M:real) [\n    \"gpt-4o\",        2.50, 10.00,\n    \"gpt-4o-mini\",   0.15,  0.60,\n    \"gpt-4.1\",       2.00,  8.00,\n    \"gpt-4.1-mini\",  0.40,  1.60,\n    \"gpt-4.1-nano\",  0.10,  0.40,\n    \"o3\",           10.00, 40.00,\n    \"o3-mini\",       1.10,  4.40,\n    \"o1\",           15.00, 60.00,\n    \"o1-mini\",       1.10,  4.40\n];\ndependencies\n| where timestamp between ({TimeRange:start} .. {TimeRange:end})\n| extend cd = customDimensions\n| extend inTok  = tolong(cd[\"gen_ai.usage.input_tokens\"]),\n         outTok = tolong(cd[\"gen_ai.usage.output_tokens\"])\n| where isnotnull(inTok) or isnotnull(outTok)\n| extend rawModel = iif(isnotempty(tostring(cd[\"gen_ai.response.model\"])),\n                        tostring(cd[\"gen_ai.response.model\"]),\n                        tostring(cd[\"gen_ai.request.model\"]))\n| extend convId = tostring(cd[\"gen_ai.conversation.id\"])\n| extend convId = iif(isnotempty(convId), convId, tostring(cd[\"gen_ai.thread.id\"]))\n| extend convId = iif(isnotempty(convId), convId, tostring(operation_Id))\n| extend model = case(\n        rawModel startswith \"gpt-4o-mini\",  \"gpt-4o-mini\",\n        rawModel startswith \"gpt-4o\",       \"gpt-4o\",\n        rawModel startswith \"gpt-4.1-nano\", \"gpt-4.1-nano\",\n        rawModel startswith \"gpt-4.1-mini\", \"gpt-4.1-mini\",\n        rawModel startswith \"gpt-4.1\",      \"gpt-4.1\",\n        rawModel startswith \"o3-mini\",      \"o3-mini\",\n        rawModel startswith \"o1-mini\",      \"o1-mini\",\n        rawModel startswith \"o3\",           \"o3\",\n        rawModel startswith \"o1\",           \"o1\",\n        rawModel)\n| join kind=leftouter pricing on model\n| extend estCostUsd = coalesce(inTok, 0) / 1000000.0 * coalesce(inPer1M, 0.0)\n                    + coalesce(outTok, 0) / 1000000.0 * coalesce(outPer1M, 0.0)\n| summarize inputTokens  = sum(inTok),\n            outputTokens = sum(outTok),\n            estCostUsd   = round(sum(estCostUsd), 4),\n            calls        = count(),\n            pricedCalls  = countif(isnotnull(inPer1M)),\n            models       = make_set(model)\n        by convId\n| extend totalTokens = inputTokens + outputTokens\n| order by estCostUsd desc",
+        "size": 0,
+        "title": "Estimated cost per conversation (USD)",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table",
+        "comment": "AI Foundry only. Update the pricing datatable in the .kql."
+      },
+      "name": "query - Estimated cost per c"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Top-10 most expensive conversations\nHighest token spend by conversation."
+      },
+      "name": "text - ab08f6a4"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let pricing = datatable(model:string, inPer1M:real, outPer1M:real) [\n    \"gpt-4o\",        2.50, 10.00,\n    \"gpt-4o-mini\",   0.15,  0.60,\n    \"gpt-4.1\",       2.00,  8.00,\n    \"gpt-4.1-mini\",  0.40,  1.60,\n    \"gpt-4.1-nano\",  0.10,  0.40,\n    \"o3\",           10.00, 40.00,\n    \"o3-mini\",       1.10,  4.40,\n    \"o1\",           15.00, 60.00,\n    \"o1-mini\",       1.10,  4.40\n];\ndependencies\n| where timestamp between ({TimeRange:start} .. {TimeRange:end})\n| extend cd = customDimensions\n| extend inTok  = tolong(cd[\"gen_ai.usage.input_tokens\"]),\n         outTok = tolong(cd[\"gen_ai.usage.output_tokens\"])\n| where isnotnull(inTok) or isnotnull(outTok)\n| extend rawModel = iif(isnotempty(tostring(cd[\"gen_ai.response.model\"])),\n                        tostring(cd[\"gen_ai.response.model\"]),\n                        tostring(cd[\"gen_ai.request.model\"]))\n| extend convId = tostring(cd[\"gen_ai.conversation.id\"])\n| extend convId = iif(isnotempty(convId), convId, tostring(cd[\"gen_ai.thread.id\"]))\n| extend convId = iif(isnotempty(convId), convId, tostring(operation_Id))\n| extend model = case(\n        rawModel startswith \"gpt-4o-mini\",  \"gpt-4o-mini\",\n        rawModel startswith \"gpt-4o\",       \"gpt-4o\",\n        rawModel startswith \"gpt-4.1-nano\", \"gpt-4.1-nano\",\n        rawModel startswith \"gpt-4.1-mini\", \"gpt-4.1-mini\",\n        rawModel startswith \"gpt-4.1\",      \"gpt-4.1\",\n        rawModel startswith \"o3-mini\",      \"o3-mini\",\n        rawModel startswith \"o1-mini\",      \"o1-mini\",\n        rawModel startswith \"o3\",           \"o3\",\n        rawModel startswith \"o1\",           \"o1\",\n        rawModel)\n| join kind=leftouter pricing on model\n| extend estCostUsd = coalesce(inTok, 0) / 1000000.0 * coalesce(inPer1M, 0.0)\n                    + coalesce(outTok, 0) / 1000000.0 * coalesce(outPer1M, 0.0)\n| summarize inputTokens  = sum(inTok),\n            outputTokens = sum(outTok),\n            estCostUsd   = round(sum(estCostUsd), 4),\n            calls        = count(),\n            models       = make_set(model)\n        by convId\n| extend totalTokens = inputTokens + outputTokens\n| top 10 by estCostUsd desc",
+        "size": 0,
+        "title": "Top-10 most expensive conversations",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table",
+        "comment": "Highest token spend by conversation."
+      },
+      "name": "query - Top-10 most expensiv"
+    }
+  ],
+  "isLocked": false,
+  "fallbackResourceIds": [],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

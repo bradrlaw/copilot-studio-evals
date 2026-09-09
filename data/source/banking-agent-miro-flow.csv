@@ -1,0 +1,105 @@
+record_type,id,flow_id,flow_name,lane,shape,text,from_id,to_id,connector_label,expected_tool,acceptance_criteria_ids
+node,N-START,COMMON,Common entry,User,terminator,Start conversation,,,,,AC-001
+node,N-INTENT,COMMON,Common entry,Agent,process,Identify the user's banking goal,,,,,AC-001;AC-002
+node,N-SCOPE,COMMON,Common entry,Agent,decision,Is the request supported?,,,,,AC-002;AC-027
+node,N-REFUSE,COMMON,Common entry,Agent,process,Decline safely and explain supported banking tasks,,,,,AC-027;AC-028
+node,N-AUTH,COMMON,Common entry,Agent,decision,Is authentication required and complete?,,,,customer.authenticate,AC-003;AC-004
+node,N-AUTH-PROMPT,COMMON,Common entry,Agent,process,Request authentication without collecting credentials in chat,,,,customer.authenticate,AC-003;AC-005
+node,N-AUTH-FAIL,COMMON,Common entry,Agent,process,Stop after failed authentication and provide recovery guidance,,,,customer.authenticate,AC-005;AC-006
+node,N-ROUTE,COMMON,Common entry,Agent,decision,Route to the selected transaction flow,,,,,AC-002
+edge,E-C01,COMMON,Common entry,,,,N-START,N-INTENT,,,
+edge,E-C02,COMMON,Common entry,,,,N-INTENT,N-SCOPE,,,
+edge,E-C03,COMMON,Common entry,,,,N-SCOPE,N-REFUSE,No,,
+edge,E-C04,COMMON,Common entry,,,,N-SCOPE,N-AUTH,Yes,,
+edge,E-C05,COMMON,Common entry,,,,N-AUTH,N-AUTH-PROMPT,No,customer.authenticate,
+edge,E-C06,COMMON,Common entry,,,,N-AUTH-PROMPT,N-AUTH-FAIL,Authentication failed,customer.authenticate,
+edge,E-C07,COMMON,Common entry,,,,N-AUTH-PROMPT,N-ROUTE,Authentication succeeded,customer.authenticate,
+edge,E-C08,COMMON,Common entry,,,,N-AUTH,N-ROUTE,Already authenticated,,
+node,N-BAL-ACCOUNT,BALANCE,Check account balance,Agent,decision,Is the account specified unambiguously?,,,,account.list,AC-007
+node,N-BAL-CLARIFY,BALANCE,Check account balance,Agent,process,Ask the user to choose from masked account labels,,,,account.list,AC-004;AC-007
+node,N-BAL-READ,BALANCE,Check account balance,System,data,Retrieve current and available balances,,,,account.balance,AC-008
+node,N-BAL-RESPOND,BALANCE,Check account balance,Agent,terminator,Return balances with currency and as-of time,,,,,AC-008;AC-009;AC-034
+edge,E-B01,BALANCE,Check account balance,,,,N-ROUTE,N-BAL-ACCOUNT,Balance request,,
+edge,E-B02,BALANCE,Check account balance,,,,N-BAL-ACCOUNT,N-BAL-CLARIFY,No,account.list,
+edge,E-B03,BALANCE,Check account balance,,,,N-BAL-CLARIFY,N-BAL-READ,Account selected,account.balance,
+edge,E-B04,BALANCE,Check account balance,,,,N-BAL-ACCOUNT,N-BAL-READ,Yes,account.balance,
+edge,E-B05,BALANCE,Check account balance,,,,N-BAL-READ,N-BAL-RESPOND,Success,,
+node,N-TXN-ACCOUNT,TRANSACTIONS,Review recent transactions,Agent,decision,Is the account specified unambiguously?,,,,account.list,AC-007
+node,N-TXN-FILTERS,TRANSACTIONS,Review recent transactions,Agent,process,Collect or infer date range amount merchant and transaction type filters,,,,,AC-010
+node,N-TXN-SEARCH,TRANSACTIONS,Review recent transactions,System,data,Search posted and pending transactions,,,,transaction.search,AC-010;AC-011
+node,N-TXN-RESULT,TRANSACTIONS,Review recent transactions,Agent,decision,Were matching transactions found?,,,,,AC-011
+node,N-TXN-LIST,TRANSACTIONS,Review recent transactions,Agent,terminator,Show a concise list with masked account and transaction status,,,,,AC-004;AC-011
+node,N-TXN-NONE,TRANSACTIONS,Review recent transactions,Agent,terminator,Explain that no matches were found and offer filter changes,,,,,AC-012
+edge,E-T01,TRANSACTIONS,Review recent transactions,,,,N-ROUTE,N-TXN-ACCOUNT,Transaction search,,
+edge,E-T02,TRANSACTIONS,Review recent transactions,,,,N-TXN-ACCOUNT,N-TXN-FILTERS,Account selected,,
+edge,E-T03,TRANSACTIONS,Review recent transactions,,,,N-TXN-FILTERS,N-TXN-SEARCH,Filters ready,transaction.search,
+edge,E-T04,TRANSACTIONS,Review recent transactions,,,,N-TXN-SEARCH,N-TXN-RESULT,Search complete,,
+edge,E-T05,TRANSACTIONS,Review recent transactions,,,,N-TXN-RESULT,N-TXN-LIST,Yes,,
+edge,E-T06,TRANSACTIONS,Review recent transactions,,,,N-TXN-RESULT,N-TXN-NONE,No,,
+node,N-XFER-DETAILS,TRANSFER,Transfer between own accounts,Agent,process,Collect source destination and amount using masked account labels,,,,account.list,AC-013;AC-014
+node,N-XFER-VALIDATE,TRANSFER,Transfer between own accounts,System,data,Validate distinct accounts amount available funds and limits,,,,transfer.validate,AC-014;AC-015
+node,N-XFER-VALID,TRANSFER,Transfer between own accounts,Agent,decision,Did validation pass?,,,,,AC-015
+node,N-XFER-CORRECT,TRANSFER,Transfer between own accounts,Agent,process,Explain the validation issue and request a correction,,,,,AC-015;AC-020
+node,N-XFER-CONFIRM,TRANSFER,Transfer between own accounts,Agent,decision,Ask for explicit confirmation of source destination amount and timing,,,,,AC-016
+node,N-XFER-CANCEL,TRANSFER,Transfer between own accounts,Agent,terminator,Cancel without creating a transfer,,,,,AC-017
+node,N-XFER-CREATE,TRANSFER,Transfer between own accounts,System,data,Create the transfer exactly once,,,,transfer.create,AC-017;AC-018
+node,N-XFER-RECEIPT,TRANSFER,Transfer between own accounts,Agent,terminator,Return confirmation reference status and expected availability,,,,,AC-018;AC-019;AC-034;AC-035
+edge,E-X01,TRANSFER,Transfer between own accounts,,,,N-ROUTE,N-XFER-DETAILS,Transfer request,,
+edge,E-X02,TRANSFER,Transfer between own accounts,,,,N-XFER-DETAILS,N-XFER-VALIDATE,Details complete,transfer.validate,
+edge,E-X03,TRANSFER,Transfer between own accounts,,,,N-XFER-VALIDATE,N-XFER-VALID,Validation complete,,
+edge,E-X04,TRANSFER,Transfer between own accounts,,,,N-XFER-VALID,N-XFER-CORRECT,No,,
+edge,E-X05,TRANSFER,Transfer between own accounts,,,,N-XFER-CORRECT,N-XFER-VALIDATE,Corrected,transfer.validate,
+edge,E-X06,TRANSFER,Transfer between own accounts,,,,N-XFER-VALID,N-XFER-CONFIRM,Yes,,
+edge,E-X07,TRANSFER,Transfer between own accounts,,,,N-XFER-CONFIRM,N-XFER-CANCEL,Declined or changed,,
+edge,E-X08,TRANSFER,Transfer between own accounts,,,,N-XFER-CONFIRM,N-XFER-CREATE,Confirmed,transfer.create,
+edge,E-X09,TRANSFER,Transfer between own accounts,,,,N-XFER-CREATE,N-XFER-RECEIPT,Success,,
+node,N-PAYEE,BILLPAY,Pay a bill,Agent,decision,Is the payee an unambiguous saved payee?,,,,payee.search,AC-021
+node,N-PAYEE-CLARIFY,BILLPAY,Pay a bill,Agent,process,Ask the user to select the saved payee without exposing full account details,,,,payee.search,AC-004;AC-021
+node,N-PAY-DETAILS,BILLPAY,Pay a bill,Agent,process,Collect funding account amount and payment date,,,,,AC-022
+node,N-PAY-VALIDATE,BILLPAY,Pay a bill,System,data,Validate payee funding account amount date funds and limits,,,,payment.validate,AC-022;AC-023
+node,N-PAY-CONFIRM,BILLPAY,Pay a bill,Agent,decision,Ask for explicit confirmation of the complete payment summary,,,,,AC-016;AC-023
+node,N-PAY-CREATE,BILLPAY,Pay a bill,System,data,Schedule or create the payment exactly once,,,,payment.create,AC-017;AC-024
+node,N-PAY-RECEIPT,BILLPAY,Pay a bill,Agent,terminator,Return confirmation reference and scheduled date,,,,,AC-024;AC-034;AC-035
+edge,E-P01,BILLPAY,Pay a bill,,,,N-ROUTE,N-PAYEE,Bill payment request,payee.search,
+edge,E-P02,BILLPAY,Pay a bill,,,,N-PAYEE,N-PAYEE-CLARIFY,No,payee.search,
+edge,E-P03,BILLPAY,Pay a bill,,,,N-PAYEE-CLARIFY,N-PAY-DETAILS,Payee selected,,
+edge,E-P04,BILLPAY,Pay a bill,,,,N-PAYEE,N-PAY-DETAILS,Yes,,
+edge,E-P05,BILLPAY,Pay a bill,,,,N-PAY-DETAILS,N-PAY-VALIDATE,Details complete,payment.validate,
+edge,E-P06,BILLPAY,Pay a bill,,,,N-PAY-VALIDATE,N-PAY-CONFIRM,Valid,,
+edge,E-P07,BILLPAY,Pay a bill,,,,N-PAY-CONFIRM,N-PAY-CREATE,Confirmed,payment.create,
+edge,E-P08,BILLPAY,Pay a bill,,,,N-PAY-CONFIRM,N-XFER-CANCEL,Declined or changed,,
+edge,E-P09,BILLPAY,Pay a bill,,,,N-PAY-CREATE,N-PAY-RECEIPT,Success,,
+node,N-CARD-SELECT,CARD,Lock or unlock a card,Agent,decision,Is the card unambiguous?,,,,card.list,AC-025
+node,N-CARD-CLARIFY,CARD,Lock or unlock a card,Agent,process,Ask the user to select a masked card label,,,,card.list,AC-004;AC-025
+node,N-CARD-ACTION,CARD,Lock or unlock a card,Agent,decision,Lock or unlock?,,,,,AC-025;AC-026
+node,N-CARD-CONFIRM,CARD,Lock or unlock a card,Agent,decision,Confirm unlock or clarify lock consequences,,,,,AC-016;AC-026
+node,N-CARD-UPDATE,CARD,Lock or unlock a card,System,data,Update card status exactly once,,,,card.update_status,AC-017;AC-026
+node,N-CARD-DONE,CARD,Lock or unlock a card,Agent,terminator,Confirm current card status and next steps,,,,,AC-026;AC-034;AC-035
+edge,E-K01,CARD,Lock or unlock a card,,,,N-ROUTE,N-CARD-SELECT,Card request,card.list,
+edge,E-K02,CARD,Lock or unlock a card,,,,N-CARD-SELECT,N-CARD-CLARIFY,No,card.list,
+edge,E-K03,CARD,Lock or unlock a card,,,,N-CARD-CLARIFY,N-CARD-ACTION,Card selected,,
+edge,E-K04,CARD,Lock or unlock a card,,,,N-CARD-SELECT,N-CARD-ACTION,Yes,,
+edge,E-K05,CARD,Lock or unlock a card,,,,N-CARD-ACTION,N-CARD-CONFIRM,Action selected,,
+edge,E-K06,CARD,Lock or unlock a card,,,,N-CARD-CONFIRM,N-CARD-UPDATE,Confirmed,card.update_status,
+edge,E-K07,CARD,Lock or unlock a card,,,,N-CARD-UPDATE,N-CARD-DONE,Success,,
+node,N-DISPUTE-SELECT,DISPUTE,Dispute a transaction,Agent,process,Identify the account and transaction using masked details,,,,transaction.search,AC-029
+node,N-DISPUTE-DETAILS,DISPUTE,Dispute a transaction,Agent,process,Collect reason and required non-sensitive details,,,,,AC-029;AC-030
+node,N-DISPUTE-CREATE,DISPUTE,Dispute a transaction,System,data,Create a dispute case without promising an outcome,,,,dispute.create,AC-030;AC-031
+node,N-DISPUTE-DONE,DISPUTE,Dispute a transaction,Agent,terminator,Return case reference next steps and expected review timing,,,,,AC-031;AC-032;AC-034;AC-035
+edge,E-D01,DISPUTE,Dispute a transaction,,,,N-ROUTE,N-DISPUTE-SELECT,Dispute request,transaction.search,
+edge,E-D02,DISPUTE,Dispute a transaction,,,,N-DISPUTE-SELECT,N-DISPUTE-DETAILS,Transaction selected,,
+edge,E-D03,DISPUTE,Dispute a transaction,,,,N-DISPUTE-DETAILS,N-DISPUTE-CREATE,Details complete,dispute.create,
+edge,E-D04,DISPUTE,Dispute a transaction,,,,N-DISPUTE-CREATE,N-DISPUTE-DONE,Success,,
+node,N-ERROR,RECOVERY,Tool failure recovery,System,decision,Did a required tool fail or time out?,,,,,AC-020
+node,N-RETRY,RECOVERY,Tool failure recovery,Agent,decision,Is a safe retry available?,,,,,AC-020
+node,N-RETRY-ONCE,RECOVERY,Tool failure recovery,System,process,Retry once without duplicating a transaction,,,,,AC-018;AC-020
+node,N-ESCALATE,RECOVERY,Tool failure recovery,Agent,terminator,Explain the failure preserve transaction state and provide support options,,,,,AC-020;AC-032
+edge,E-R01,RECOVERY,Tool failure recovery,,,,N-ERROR,N-RETRY,Yes,,
+edge,E-R02,RECOVERY,Tool failure recovery,,,,N-RETRY,N-RETRY-ONCE,Yes,,
+edge,E-R03,RECOVERY,Tool failure recovery,,,,N-RETRY,N-ESCALATE,No,,
+edge,E-R04,RECOVERY,Tool failure recovery,,,,N-RETRY-ONCE,N-ESCALATE,Retry failed,,
+node,N-RESET,SESSION,Reset conversation,User,process,Ask to start over or reset,,,,,AC-033
+node,N-RESET-ACTION,SESSION,Reset conversation,System,process,Clear conversational state and pending transaction details,,,,session.reset,AC-033
+node,N-RESET-DONE,SESSION,Reset conversation,Agent,terminator,Confirm reset without repeating prior sensitive details,,,,,AC-004;AC-033
+edge,E-S01,SESSION,Reset conversation,,,,N-RESET,N-RESET-ACTION,,session.reset,
+edge,E-S02,SESSION,Reset conversation,,,,N-RESET-ACTION,N-RESET-DONE,Success,,

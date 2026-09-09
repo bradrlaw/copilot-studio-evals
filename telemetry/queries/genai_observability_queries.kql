@@ -1,0 +1,263 @@
+// =============================================================================
+// GenAI Observability KQL Queries — Application Insights
+// =============================================================================
+// Purpose: Cost / usage / performance analytics that work across BOTH telemetry
+//          sources that export to Application Insights:
+//            (A) Azure AI Foundry models & agents (OpenTelemetry GenAI semconv)
+//            (B) Microsoft Copilot Studio agents (env-level OTel + legacy MCP)
+//
+// TELEMETRY SCHEMA (verified 2026-07-29 against MS Learn + Azure SDK source):
+//
+//   All three flavours land in the `dependencies` table:
+//
+//   1. AI Foundry (azure-ai-inference / azure-ai-agents):
+//        customDimensions["gen_ai.system"]        = "az.ai.inference" | "az.ai.agents" | "openai"
+//        customDimensions["gen_ai.operation.name"] = "chat" | "execute_tool" | "process_thread_run" ...
+//        customDimensions["gen_ai.request.model"]  / ["gen_ai.response.model"]
+//        customDimensions["gen_ai.usage.input_tokens"]  / ["gen_ai.usage.output_tokens"]  (NO total)
+//        customDimensions["gen_ai.tool.name"] / ["gen_ai.tool.call.id"]
+//        customDimensions["gen_ai.conversation.id"] / ["gen_ai.thread.id"] / ["gen_ai.agent.id"]
+//        span name = "chat {model}" | "execute_tool {tool}"
+//
+//   2. Copilot Studio env-level (preview) — dependencies, type == "GenAI":
+//        name = "InvokeAgent" | "ExecuteTool" | "OutputMessages"
+//        customDimensions["resource.provider"]      = "copilot studio"
+//        customDimensions["gen_ai.conversation.id"], ["gen_ai.request.model"], ["gen_ai.tool.name"]
+//        NO token usage fields.
+//
+//   3. Copilot Studio optional legacy MCP — dependencies, name == "mcp.tool":
+//        customDimensions["mcp.tool.name"] plus a provider-specific outcome field
+//        NO token usage fields.
+//
+//   Common columns on dependencies: duration (ms, float), success (bool),
+//   resultCode ("OK"/"ERROR"), operation_Id.
+//
+// See ../docs/app-insights-gap-analysis.md for what CANNOT be derived here.
+// Time windows use ago(); the workbook build injects a {TimeRange} parameter.
+// =============================================================================
+
+
+// ---------------------------------------------------------------------------
+// QUERY 0: Source Discovery (run first)
+// Inventories which telemetry flavours are present so you can confirm the
+// gen_ai.system / provider values in YOUR instance before trusting the rest.
+// ---------------------------------------------------------------------------
+
+dependencies
+| where timestamp > ago(14d)
+| extend cd = customDimensions
+| extend genaiSystem = tostring(cd["gen_ai.system"]),
+         provider     = tostring(cd["resource.provider"]),
+         opName       = tostring(cd["gen_ai.operation.name"])
+| extend source = case(
+        genaiSystem startswith "az.ai",       "AI Foundry",
+        genaiSystem == "openai",              "AI Foundry (OpenAI SDK)",
+        provider == "copilot studio",         "Copilot Studio (env OTel)",
+        name == "mcp.tool",                   "Copilot Studio (MCP legacy)",
+        "Other / unclassified")
+| summarize spans = count(),
+            withTokens = countif(isnotempty(tostring(cd["gen_ai.usage.input_tokens"]))),
+            distinctModels = dcount(tostring(cd["gen_ai.request.model"])),
+            distinctTools  = dcount(coalesce(tostring(cd["gen_ai.tool.name"]), tostring(cd["mcp.tool.name"])))
+        by source, genaiSystem, provider
+| order by spans desc
+
+
+// ---------------------------------------------------------------------------
+// QUERY 1: Tool invocation frequency and error rate per tool
+// Normalizes tool-execution spans from all three sources. errorRatePct counts
+// success==false OR resultCode=="ERROR" OR an MCP outcome of error/failure.
+// ---------------------------------------------------------------------------
+
+dependencies
+| where timestamp > ago(14d)
+| extend cd = customDimensions
+| extend genaiTool = tostring(cd["gen_ai.tool.name"]),
+         mcpTool   = tostring(cd["mcp.tool.name"]),
+         genaiSystem = tostring(cd["gen_ai.system"]),
+         provider    = tostring(cd["resource.provider"]),
+         mcpOutcome  = tolower(coalesce(tostring(cd["mcp.tool.outcome"]), tostring(cd["outcome"]), tostring(resultCode)))
+| where isnotempty(genaiTool) or isnotempty(mcpTool)
+        or name in ("ExecuteTool", "mcp.tool")
+        or tostring(cd["gen_ai.operation.name"]) == "execute_tool"
+| extend toolName = iif(isnotempty(genaiTool), genaiTool,
+                    iif(isnotempty(mcpTool), mcpTool, name))
+| extend source = case(
+        genaiSystem startswith "az.ai" or genaiSystem == "openai", "AI Foundry",
+        provider == "copilot studio",                              "Copilot Studio (env OTel)",
+        name == "mcp.tool",                                        "Copilot Studio (MCP legacy)",
+        isnotempty(genaiTool),                                     "AI Foundry",
+        "Other")
+| extend isError = (success == false) or (resultCode == "ERROR")
+                   or (mcpOutcome in ("error", "failure", "failed"))
+| summarize invocations = count(),
+            errors      = countif(isError),
+            avgDurationMs = round(avg(duration), 1)
+        by source, toolName
+| extend errorRatePct = round(100.0 * errors / invocations, 2)
+| order by invocations desc
+
+
+// ---------------------------------------------------------------------------
+// QUERY 2: Token usage by model (daily aggregation)
+// AI Foundry only — Copilot Studio does NOT log token counts (see gap analysis).
+// For a WEEKLY roll-up, change bin(timestamp, 1d) to bin(timestamp, 7d).
+// ---------------------------------------------------------------------------
+
+dependencies
+| where timestamp > ago(30d)
+| extend cd = customDimensions
+| extend inTok  = tolong(cd["gen_ai.usage.input_tokens"]),
+         outTok = tolong(cd["gen_ai.usage.output_tokens"])
+| where isnotnull(inTok) or isnotnull(outTok)
+| extend model = iif(isnotempty(tostring(cd["gen_ai.response.model"])),
+                     tostring(cd["gen_ai.response.model"]),
+                     tostring(cd["gen_ai.request.model"]))
+| extend model = iif(isnotempty(model), model, "unknown")
+| summarize inputTokens  = sum(inTok),
+            outputTokens = sum(outTok),
+            calls        = count()
+        by day = bin(timestamp, 1d), model
+| extend totalTokens = inputTokens + outputTokens
+| order by day asc, totalTokens desc
+
+
+// ---------------------------------------------------------------------------
+// QUERY 3: Tool latency p50 / p95 (/ p99) per tool
+// Same normalized tool set as Query 1; duration is in milliseconds.
+// ---------------------------------------------------------------------------
+
+dependencies
+| where timestamp > ago(14d)
+| extend cd = customDimensions
+| extend genaiTool = tostring(cd["gen_ai.tool.name"]),
+         mcpTool   = tostring(cd["mcp.tool.name"]),
+         genaiSystem = tostring(cd["gen_ai.system"]),
+         provider    = tostring(cd["resource.provider"])
+| where isnotempty(genaiTool) or isnotempty(mcpTool)
+        or name in ("ExecuteTool", "mcp.tool")
+        or tostring(cd["gen_ai.operation.name"]) == "execute_tool"
+| extend toolName = iif(isnotempty(genaiTool), genaiTool,
+                    iif(isnotempty(mcpTool), mcpTool, name))
+| extend source = case(
+        genaiSystem startswith "az.ai" or genaiSystem == "openai", "AI Foundry",
+        provider == "copilot studio",                              "Copilot Studio (env OTel)",
+        name == "mcp.tool",                                        "Copilot Studio (MCP legacy)",
+        isnotempty(genaiTool),                                     "AI Foundry",
+        "Other")
+| summarize calls = count(),
+            p50Ms = round(percentile(duration, 50), 1),
+            p95Ms = round(percentile(duration, 95), 1),
+            p99Ms = round(percentile(duration, 99), 1),
+            maxMs = round(max(duration), 1)
+        by source, toolName
+| order by p95Ms desc
+
+
+// ---------------------------------------------------------------------------
+// QUERY 4: Estimated cost per conversation (token count x pricing)
+// AI Foundry only. Pricing = USD per 1,000,000 tokens (Global/Standard, mid-2025
+// list). >>> VERIFY / UPDATE the datatable against the live Azure pricing page:
+// https://azure.microsoft.com/en-us/pricing/details/azure-openai/
+// Models not in the datatable are priced at 0 (shown via pricedCalls < calls).
+// ---------------------------------------------------------------------------
+
+let pricing = datatable(model:string, inPer1M:real, outPer1M:real) [
+    "gpt-4o",        2.50, 10.00,
+    "gpt-4o-mini",   0.15,  0.60,
+    "gpt-4.1",       2.00,  8.00,
+    "gpt-4.1-mini",  0.40,  1.60,
+    "gpt-4.1-nano",  0.10,  0.40,
+    "o3",           10.00, 40.00,
+    "o3-mini",       1.10,  4.40,
+    "o1",           15.00, 60.00,
+    "o1-mini",       1.10,  4.40
+];
+dependencies
+| where timestamp > ago(30d)
+| extend cd = customDimensions
+| extend inTok  = tolong(cd["gen_ai.usage.input_tokens"]),
+         outTok = tolong(cd["gen_ai.usage.output_tokens"])
+| where isnotnull(inTok) or isnotnull(outTok)
+| extend rawModel = iif(isnotempty(tostring(cd["gen_ai.response.model"])),
+                        tostring(cd["gen_ai.response.model"]),
+                        tostring(cd["gen_ai.request.model"]))
+| extend convId = tostring(cd["gen_ai.conversation.id"])
+| extend convId = iif(isnotempty(convId), convId, tostring(cd["gen_ai.thread.id"]))
+| extend convId = iif(isnotempty(convId), convId, tostring(operation_Id))
+// Collapse versioned deployment names (e.g. "gpt-4o-2024-08-06") to a price key.
+| extend model = case(
+        rawModel startswith "gpt-4o-mini",  "gpt-4o-mini",
+        rawModel startswith "gpt-4o",       "gpt-4o",
+        rawModel startswith "gpt-4.1-nano", "gpt-4.1-nano",
+        rawModel startswith "gpt-4.1-mini", "gpt-4.1-mini",
+        rawModel startswith "gpt-4.1",      "gpt-4.1",
+        rawModel startswith "o3-mini",      "o3-mini",
+        rawModel startswith "o1-mini",      "o1-mini",
+        rawModel startswith "o3",           "o3",
+        rawModel startswith "o1",           "o1",
+        rawModel)
+| join kind=leftouter pricing on model
+| extend estCostUsd = coalesce(inTok, 0) / 1000000.0 * coalesce(inPer1M, 0.0)
+                    + coalesce(outTok, 0) / 1000000.0 * coalesce(outPer1M, 0.0)
+| summarize inputTokens  = sum(inTok),
+            outputTokens = sum(outTok),
+            estCostUsd   = round(sum(estCostUsd), 4),
+            calls        = count(),
+            pricedCalls  = countif(isnotnull(inPer1M)),
+            models       = make_set(model)
+        by convId
+| extend totalTokens = inputTokens + outputTokens
+| order by estCostUsd desc
+
+
+// ---------------------------------------------------------------------------
+// QUERY 5: Top-10 most expensive conversations
+// Identical cost model to Query 4, limited to the 10 highest-cost conversations.
+// ---------------------------------------------------------------------------
+
+let pricing = datatable(model:string, inPer1M:real, outPer1M:real) [
+    "gpt-4o",        2.50, 10.00,
+    "gpt-4o-mini",   0.15,  0.60,
+    "gpt-4.1",       2.00,  8.00,
+    "gpt-4.1-mini",  0.40,  1.60,
+    "gpt-4.1-nano",  0.10,  0.40,
+    "o3",           10.00, 40.00,
+    "o3-mini",       1.10,  4.40,
+    "o1",           15.00, 60.00,
+    "o1-mini",       1.10,  4.40
+];
+dependencies
+| where timestamp > ago(30d)
+| extend cd = customDimensions
+| extend inTok  = tolong(cd["gen_ai.usage.input_tokens"]),
+         outTok = tolong(cd["gen_ai.usage.output_tokens"])
+| where isnotnull(inTok) or isnotnull(outTok)
+| extend rawModel = iif(isnotempty(tostring(cd["gen_ai.response.model"])),
+                        tostring(cd["gen_ai.response.model"]),
+                        tostring(cd["gen_ai.request.model"]))
+| extend convId = tostring(cd["gen_ai.conversation.id"])
+| extend convId = iif(isnotempty(convId), convId, tostring(cd["gen_ai.thread.id"]))
+| extend convId = iif(isnotempty(convId), convId, tostring(operation_Id))
+| extend model = case(
+        rawModel startswith "gpt-4o-mini",  "gpt-4o-mini",
+        rawModel startswith "gpt-4o",       "gpt-4o",
+        rawModel startswith "gpt-4.1-nano", "gpt-4.1-nano",
+        rawModel startswith "gpt-4.1-mini", "gpt-4.1-mini",
+        rawModel startswith "gpt-4.1",      "gpt-4.1",
+        rawModel startswith "o3-mini",      "o3-mini",
+        rawModel startswith "o1-mini",      "o1-mini",
+        rawModel startswith "o3",           "o3",
+        rawModel startswith "o1",           "o1",
+        rawModel)
+| join kind=leftouter pricing on model
+| extend estCostUsd = coalesce(inTok, 0) / 1000000.0 * coalesce(inPer1M, 0.0)
+                    + coalesce(outTok, 0) / 1000000.0 * coalesce(outPer1M, 0.0)
+| summarize inputTokens  = sum(inTok),
+            outputTokens = sum(outTok),
+            estCostUsd   = round(sum(estCostUsd), 4),
+            calls        = count(),
+            models       = make_set(model)
+        by convId
+| extend totalTokens = inputTokens + outputTokens
+| top 10 by estCostUsd desc

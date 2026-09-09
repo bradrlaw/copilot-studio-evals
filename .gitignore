@@ -1,0 +1,11 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Raw App Insights telemetry exports — contain real client conversation data (PII).
+# Keep local only; do not commit. Regenerate eval sets via scripts/app_insights_queries.kql.
+messages.csv
+toolcalls.csv
+
+# Filled baseline results (recorded per-run) — commit deliberately, not by accident
+baseline_results_*.filled.csv

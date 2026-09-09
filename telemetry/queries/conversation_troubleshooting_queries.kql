@@ -1,0 +1,206 @@
+// ===========================================================================
+// Conversation / User Troubleshooting — KQL query set
+// ===========================================================================
+// Source-of-truth queries for the "Conversation / User troubleshooting"
+// Azure Monitor Workbook (build_troubleshooting_workbook.py turns these into
+// the workbook JSON). Same `// QUERY <id>:` header convention as the rest of
+// the repo.
+//
+// These target Microsoft Copilot Studio agent telemetry as it lands in
+// Application Insights:
+//   - messages   -> customEvents  (BotMessageReceived / BotMessageSend)
+//   - tool calls -> dependencies  (name == "mcp.tool", optional legacy MCP path)
+//
+// Identity model (verified against live UAT telemetry):
+//   - agent          = customDimensions.recipientName on BotMessageReceived
+//                      (use Query 0 to discover values in the target environment)
+//   - user           = customDimensions.fromId (a stable GUID per user)
+//   - channel/surface= prefix of the App Insights user_Id column
+//                      (pva-studio / pva-published-engine-direct / m365copilot ...)
+//   - conversation   = customDimensions.conversationId (GUID *or* DirectLine
+//                      "a:..." form; may span several sessions over time)
+//   - user message   = BotMessageReceived AND type == "message" AND text != ""
+//   - agent message  = BotMessageSend AND text != ""
+//
+// >>> IMPORTANT tool-call caveat <<<
+// mcp.tool rows carry NO conversationId / user_Id / session_Id — only their own
+// operation_Id. Tool calls therefore cannot be joined to a conversation by id;
+// QUERY 4 overlays them onto a conversation by TIMESTAMP WINDOW (best-effort).
+// If several conversations overlap in time, a tool call in the window may belong
+// to a different user. Treat the tool rows in the flow as time-correlated hints.
+//
+// Workbook parameters referenced below: {TimeRange}, {Agent}, {UserId},
+// {ConversationId}. {Agent} == "" means "all agents"; {UserId} / {ConversationId}
+// == "" means "no filter". {UserId} is a free-text field that matches either a
+// fromId (GUID / Teams MRI) OR a display name (case-insensitive substring);
+// display names are only emitted on the Teams (msteams) channel — every other
+// channel (published web, m365copilot, studio) is GUID-only. {ConversationId}
+// matches the conversationId exactly.
+// ---------------------------------------------------------------------------
+
+
+// QUERY 0: Agents in this Application Insights resource
+// One row per Copilot Studio agent (bot) seen, with volume. Confirms which
+// agents share this resource and seeds the Agent picker.
+customEvents
+| where timestamp between ({TimeRange:start} .. {TimeRange:end})
+| where name == "BotMessageReceived"
+| extend cd = customDimensions
+| extend agent = tostring(cd.recipientName)
+| where isnotempty(agent)
+| summarize conversations = dcount(tostring(cd.conversationId)),
+            sessions      = dcount(session_Id),
+            users         = dcount(tostring(cd.fromId)),
+            messages      = count(),
+            lastSeen      = max(timestamp)
+        by agent
+| order by messages desc
+
+
+// QUERY 1: Users across all agents (sessions & conversations)
+// "How many sessions / conversations has a user had, across every agent."
+// Click a row to push the userId into the {UserId} parameter (drives QUERY 2).
+//
+// {UserId} accepts a fromId (GUID / Teams MRI) *or* a display name — it matches
+// either the id or the userName (case-insensitive substring). Display names are
+// only emitted on the Teams (msteams) channel; published-web, m365copilot and
+// studio users are GUID-only.
+let userNames = customEvents
+    | where timestamp between ({TimeRange:start} .. {TimeRange:end})
+    | where name == "BotMessageSend"
+    | extend cd = customDimensions
+    | where isnotempty(tostring(cd.recipientName))
+    | summarize userName = take_any(tostring(cd.recipientName)) by userId = tostring(cd.recipientId);
+customEvents
+| where timestamp between ({TimeRange:start} .. {TimeRange:end})
+| where name == "BotMessageReceived"
+| extend cd = customDimensions
+| extend userId  = tostring(cd.fromId),
+         agent   = tostring(cd.recipientName),
+         convId  = tostring(cd.conversationId),
+         channel = tostring(split(user_Id, tostring(cd.fromId))[0])
+| where isnotempty(userId)
+| where "{Agent}" == "" or agent == "{Agent}"
+| summarize conversations = dcount(convId),
+            sessions      = dcount(session_Id),
+            messages      = count(),
+            agents        = make_set_if(agent, isnotempty(agent), 10),
+            channels      = make_set_if(channel, isnotempty(channel), 5),
+            lastSeen      = max(timestamp)
+        by userId
+| join kind = leftouter (userNames) on userId
+| extend userName = coalesce(userName, "")
+| where "{UserId}" == "" or userId contains "{UserId}" or (isnotempty(userName) and userName contains "{UserId}")
+| project userId, userName, conversations, sessions, messages, agents, channels, lastSeen
+| order by conversations desc
+
+
+// QUERY 2: Find conversations by user id OR conversation id
+// Leave both blank to browse recent conversations; set {UserId} and/or
+// {ConversationId} (or click a user in QUERY 1). Filtering is applied AFTER
+// aggregation so agent-reply rows (which have no fromId) are still counted.
+// Click a row to push convId into the {ConversationId} parameter.
+//
+// approxToolCalls: mcp.tool rows carry no conversationId, so tool calls are
+// counted by TIMESTAMP WINDOW ([started-30s .. ended+30s]) — hence "approx".
+// Overlapping conversations can double-count a shared tool call; treat it as a
+// best-effort hint (same caveat as the QUERY 4 flow overlay).
+let toolRows = dependencies
+    | where timestamp between ({TimeRange:start} .. {TimeRange:end})
+    | where name == "mcp.tool"
+    | project toolTime = timestamp, opId = operation_Id, tbin = bin(timestamp, 1m);
+let userNames = customEvents
+    | where timestamp between ({TimeRange:start} .. {TimeRange:end})
+    | where name == "BotMessageSend"
+    | extend cd = customDimensions
+    | where isnotempty(tostring(cd.recipientName))
+    | summarize userName = take_any(tostring(cd.recipientName)) by userId = tostring(cd.recipientId);
+let convAgg = customEvents
+    | where timestamp between ({TimeRange:start} .. {TimeRange:end})
+    | where name in ("BotMessageReceived", "BotMessageSend")
+    | extend cd = customDimensions
+    | extend convId = tostring(cd.conversationId)
+    | where isnotempty(convId)
+    | where "{ConversationId}" == "" or convId == "{ConversationId}"
+    | summarize agent  = take_anyif(tostring(cd.recipientName), name == "BotMessageReceived" and isnotempty(tostring(cd.recipientName))),
+                userId = take_anyif(tostring(cd.fromId), name == "BotMessageReceived" and isnotempty(tostring(cd.fromId))),
+                started = min(timestamp),
+                ended   = max(timestamp),
+                userMessages = countif(name == "BotMessageReceived" and tostring(cd.type) == "message" and isnotempty(tostring(cd.text))),
+                botMessages  = countif(name == "BotMessageSend" and isnotempty(tostring(cd.text)))
+            by convId
+    | where "{Agent}" == "" or agent == "{Agent}"
+    | where userMessages + botMessages > 0
+    | join kind = leftouter (userNames) on userId
+    | extend userName = coalesce(userName, "")
+    | where "{UserId}" == "" or userId contains "{UserId}" or (isnotempty(userName) and userName contains "{UserId}");
+let convToolCounts =
+    convAgg
+    | extend startB = bin(started - 30s, 1m), endB = bin(ended + 30s, 1m)
+    | extend nbins = toint((endB - startB) / 1m) + 1
+    | mv-expand offset = range(0, nbins - 1, 1) to typeof(int)
+    | extend tbin = startB + offset * 1m
+    | project convId, started, ended, tbin
+    | join kind = inner (toolRows) on tbin
+    | where toolTime between (started - 30s .. ended + 30s)
+    | summarize approxToolCalls = dcount(opId) by convId;
+convAgg
+| join kind = leftouter (convToolCounts) on convId
+| extend approxToolCalls = coalesce(approxToolCalls, 0)
+| project convId, agent, userId, userName, started, ended, userMessages, botMessages,
+          approxToolCalls,
+          durationMin = round(datetime_diff('second', ended, started) / 60.0, 1)
+| order by started desc
+
+
+// QUERY 3: Conversation transcript (messages only)
+// Clean, ordered read of one conversation. Set {ConversationId} (or click a
+// row in QUERY 2). Handshake / event activities are filtered out.
+customEvents
+| where timestamp between ({TimeRange:start} .. {TimeRange:end})
+| where tostring(customDimensions.conversationId) == "{ConversationId}"
+| where name in ("BotMessageReceived", "BotMessageSend")
+| extend cd = customDimensions
+| where (name == "BotMessageReceived" and tostring(cd.type) == "message" and isnotempty(tostring(cd.text)))
+     or (name == "BotMessageSend" and isnotempty(tostring(cd.text)))
+| project timestamp,
+          role = iff(name == "BotMessageReceived", "user", "agent"),
+          text = tostring(cd.text)
+| order by timestamp asc
+
+
+// QUERY 4: Conversation flow (messages + tool calls, inline)
+// The full flow for one conversation: user/agent messages interleaved with the
+// MCP tool calls that ran during it. Tool calls are matched by TIMESTAMP WINDOW
+// (they carry no conversationId) — see the caveat in the header.
+let conv = "{ConversationId}";
+let bounds = materialize(
+    customEvents
+    | where timestamp between ({TimeRange:start} .. {TimeRange:end})
+    | where tostring(customDimensions.conversationId) == conv
+    | summarize mn = min(timestamp), mx = max(timestamp));
+let mn = toscalar(bounds | project mn);
+let mx = toscalar(bounds | project mx);
+union
+ (customEvents
+  | where timestamp between ({TimeRange:start} .. {TimeRange:end})
+  | where tostring(customDimensions.conversationId) == conv
+  | where name in ("BotMessageReceived", "BotMessageSend")
+  | extend cd = customDimensions
+  | where (name == "BotMessageReceived" and tostring(cd.type) == "message" and isnotempty(tostring(cd.text)))
+       or (name == "BotMessageSend" and isnotempty(tostring(cd.text)))
+  | project timestamp,
+            step   = iff(name == "BotMessageReceived", "user", "agent"),
+            detail = tostring(cd.text),
+            latencyMs = real(null),
+            ok = ""),
+ (dependencies
+  | where name == "mcp.tool"
+  | where timestamp between (mn - 30s .. mx + 30s)
+  | extend cd = customDimensions
+  | project timestamp,
+            step   = strcat("tool:", tostring(cd["mcp.tool.name"])),
+            detail = strcat("outcome=", coalesce(tostring(cd["mcp.tool.outcome"]), tostring(cd["outcome"]), tostring(resultCode)), iif(success == false, "  [FAILED]", "")),
+            latencyMs = toreal(duration),
+            ok = tostring(success))
+| order by timestamp asc
