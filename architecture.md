@@ -303,5 +303,4 @@ Remaining framework enhancements:
 2. Add generated-workbook consistency checks and deterministic workbook IDs.
 3. Make telemetry dimensions, query exports, and pricing data configurable.
 4. Add normalized result ingestion and versioned run manifests.
-5. Add community templates and repository automation before creating the public
-   GitHub repository.
+5. Add repository automation before making the GitHub repository public.

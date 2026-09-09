@@ -104,5 +104,4 @@ Do not copy tool mappings or expected behavior from an unrelated agent.
 2. Make telemetry field mappings and pricing data externally configurable.
 3. Add generated-workbook consistency checks.
 4. Add run metadata manifests and normalized result ingestion.
-5. Add community templates and repository automation before creating the GitHub
-   repository.
+5. Add repository automation before making the GitHub repository public.

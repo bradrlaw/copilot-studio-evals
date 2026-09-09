@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://aka.ms/SECURITY.md
+    about: Report security vulnerabilities privately through Microsoft's security process.
+  - name: Support policy
+    url: https://github.com/bradrlaw/copilot-studio-evals/blob/main/SUPPORT.md
+    about: Review the project's best-effort community support policy before filing an issue.

@@ -1,0 +1,94 @@
+name: Bug report
+description: Report a reproducible problem with the framework, scripts, or samples.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Search existing issues before continuing.
+        Do not include credentials, personal data, production conversations, tenant
+        or environment identifiers, internal URLs, or other confidential content.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what impact did it have?
+      placeholder: Describe the problem clearly and concisely.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest synthetic example that reproduces the problem.
+      placeholder: |
+        1. Run ...
+        2. Use synthetic input ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include sanitized error output or screenshots when useful.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Framework version
+      description: Provide a commit SHA, tag, or branch.
+      placeholder: main at abc1234
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: Python 3.12.4
+
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add sanitized logs, configuration, or related links if needed.
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched for an existing issue before creating this one.
+          required: true
+        - label: I removed credentials, personal data, production conversations, and confidential identifiers.
+          required: true
+        - label: I have not included a security vulnerability in this public report.
+          required: true

@@ -60,12 +60,15 @@ The repository includes the Microsoft open-source governance baseline:
   guidance.
 - [`SUPPORT.md`](../SUPPORT.md) - best-effort community and maintainer support
   with no Microsoft Customer Service & Support commitment or SLA.
+- [`.github/ISSUE_TEMPLATE/`](../.github/ISSUE_TEMPLATE/) - structured bug and
+  feature request forms with privacy and security safeguards.
+- [`.github/pull_request_template.md`](../.github/pull_request_template.md) -
+  change summary, validation, generated-artifact, privacy, and CLA checklist.
 
 Before creating the public repository, also:
 
 - confirm the project has completed the required Microsoft internal open-source
   release and repository-creation process;
-- add issue and pull-request templates;
 - document the supported Python and dependency policy;
 - add CI for generators, validation, tests, secret scanning, and fixture checks;
 - configure the Microsoft CLA status check and applicable repository policies.
