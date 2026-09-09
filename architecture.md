@@ -287,7 +287,7 @@ records. This keeps integrations independent.
 | Attribute | Design response |
 | --- | --- |
 | Reproducibility | Canonical inputs, deterministic exporters, recorded run metadata |
-| Portability | Python 3.9+, standard-library core, runner-neutral JSONL |
+| Portability | CPython 3.11-3.14, standard-library core, runner-neutral JSONL |
 | Extensibility | Adapter/exporter/analyzer boundaries and external mappings |
 | Auditability | Traceability tags, immutable run evidence, explicit classifications |
 | Privacy | Private raw-data boundary, minimization, synthetic public fixtures |

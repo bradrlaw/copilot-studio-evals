@@ -18,7 +18,7 @@ idempotent.
 | An **Application Insights** resource | The single sink both platforms export to. Log Analytics (workspace-based) recommended. |
 | **Reader** (min) on that App Insights resource | To run Logs queries and view the workbook. **Contributor** to save a shared workbook. |
 | Azure portal access | For Logs, Workbooks, and enabling exports. |
-| **Python 3.9+** | Only to regenerate the workbook (`build_workbook.py`). stdlib only — no `pip install`. |
+| **CPython 3.11-3.14** | Only to regenerate the workbook (`build_workbook.py`). stdlib only — no `pip install`. |
 | (Optional) corporate proxy CA | If running queries via CLI behind SSL inspection, set `REQUESTS_CA_BUNDLE` (see §6). |
 
 > ⚠️ **Warning:** Point all sources at **one** App Insights resource if you want a

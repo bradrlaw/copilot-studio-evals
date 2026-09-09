@@ -26,12 +26,15 @@ need to complete this process once across repositories that use the Microsoft CL
 
 ## Development
 
-The core scripts require Python 3.9 or later and use the standard library. Install
+The core scripts require Python 3.11 or later and use the standard library. Install
 optional dependencies only when working on image, PowerPoint, or API helpers:
 
 ```powershell
 python -m pip install -r requirements-optional.txt
 ```
+
+Review the [Python and dependency support policy](docs/python-support-policy.md)
+before changing runtime requirements or adding a dependency.
 
 Keep changes agent-agnostic unless they update the explicitly synthetic banking
 example. Put agent-specific mappings in configuration or adapters rather than in

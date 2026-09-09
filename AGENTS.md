@@ -25,10 +25,9 @@ Read these documents before making substantial changes:
 
 ## Environment
 
-- Python 3.9+.
+- CPython 3.11 through 3.14; see `docs\python-support-policy.md`.
 - Core conversion and baseline scripts use the standard library.
-- Optional image, PowerPoint, and Application Insights helpers use
-  `requirements-optional.txt`.
+- Optional image and PowerPoint helpers use `requirements-optional.txt`.
 - There is no build step.
 - On Windows, use backslash paths. Close generated CSVs in Excel before overwriting
   them.

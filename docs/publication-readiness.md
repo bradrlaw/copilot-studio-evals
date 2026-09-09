@@ -64,12 +64,14 @@ The repository includes the Microsoft open-source governance baseline:
   feature request forms with privacy and security safeguards.
 - [`.github/pull_request_template.md`](../.github/pull_request_template.md) -
   change summary, validation, generated-artifact, privacy, and CLA checklist.
+- [`docs/python-support-policy.md`](python-support-policy.md) - supported CPython
+  versions, standard-library boundary, optional dependencies, update practices,
+  platform expectations, and version-retirement policy.
 
 Before creating the public repository, also:
 
 - confirm the project has completed the required Microsoft internal open-source
   release and repository-creation process;
-- document the supported Python and dependency policy;
 - add CI for generators, validation, tests, secret scanning, and fixture checks;
 - configure the Microsoft CLA status check and applicable repository policies.
 

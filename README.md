@@ -76,12 +76,16 @@ vulnerabilities according to [SECURITY.md](SECURITY.md). See
 
 ## Example workflow
 
-Python 3.9 or later is required. Core converters use only the standard library.
-Image, report, and API helpers use the packages in `requirements-optional.txt`:
+Python 3.11 or later is required; CPython 3.11 through 3.14 is supported. Core
+converters and API helpers use only the standard library. Image and report helpers
+use the packages in `requirements-optional.txt`:
 
 ```powershell
 python -m pip install -r requirements-optional.txt
 ```
+
+See [docs/python-support-policy.md](docs/python-support-policy.md) for supported
+versions, dependency constraints, update practices, and retirement policy.
 
 The commands below illustrate the processing pipeline after agent-specific inputs
 and configuration have been prepared.

@@ -67,7 +67,8 @@ flowchart LR
 
 ## Prerequisites
 
-- **Python 3.9+** on PATH (`python --version`). Scripts use the standard library only.
+- **CPython 3.11-3.14** on PATH (`python --version`). The core conversion scripts
+  use the standard library only.
 - **Application Insights telemetry enabled on the agent.** In Copilot Studio, open the agent
   → **Settings → Advanced** (Metadata) and connect an Application Insights resource. Without
   telemetry there are no conversations to extract. See

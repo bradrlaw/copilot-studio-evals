@@ -1,6 +1,3 @@
 # Optional report and image generation
 Pillow>=10,<13
 python-pptx>=1,<2
-
-# Optional Application Insights REST client
-requests>=2.31,<3
